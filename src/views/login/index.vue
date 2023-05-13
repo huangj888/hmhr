@@ -3,83 +3,62 @@
     <el-form ref="loginForm" :model="loginForm" :rules="loginRules" class="login-form" auto-complete="on" label-position="left">
 
       <div class="title-container">
-        <h3 class="title">Login Form</h3>
+        <h3 class="title">
+          <!-- 有的页面文字可能是图片(logo图) -->
+          <img src="@/assets/common/login-logo.png" alt="">
+        </h3>
       </div>
 
-      <el-form-item prop="username">
+      <el-form-item prop="mobile">
         <span class="svg-container">
           <svg-icon icon-class="user" />
         </span>
-        <el-input
-          ref="username"
-          v-model="loginForm.username"
-          placeholder="Username"
-          name="username"
-          type="text"
-          tabindex="1"
-          auto-complete="on"
-        />
+        <el-input ref="mobile" v-model="loginForm.mobile" placeholder="Mobile" name="mobile" type="text" tabindex="1" auto-complete="on" />
       </el-form-item>
 
       <el-form-item prop="password">
         <span class="svg-container">
           <svg-icon icon-class="password" />
         </span>
-        <el-input
-          :key="passwordType"
-          ref="password"
-          v-model="loginForm.password"
-          :type="passwordType"
-          placeholder="Password"
-          name="password"
-          tabindex="2"
-          auto-complete="on"
-          @keyup.enter.native="handleLogin"
-        />
+        <el-input :key="passwordType" ref="password" v-model="loginForm.password" :type="passwordType" placeholder="Password" name="password" tabindex="2" auto-complete="on" @keyup.enter.native="handleLogin" />
         <span class="show-pwd" @click="showPwd">
           <svg-icon :icon-class="passwordType === 'password' ? 'eye' : 'eye-open'" />
         </span>
       </el-form-item>
 
-      <el-button :loading="loading" type="primary" style="width:100%;margin-bottom:30px;" @click.native.prevent="handleLogin">Login</el-button>
+      <el-button :loading="loading" type="primary" style="width:100%;margin-bottom:30px;" class="login_btn" @click.native.prevent="handleLogin">登录</el-button>
 
       <div class="tips">
-        <span style="margin-right:20px;">username: admin</span>
-        <span> password: any</span>
+        <span style="margin-right:20px;">mobile: 13800000002</span>
+        <span> password: 123456</span>
       </div>
-
     </el-form>
+
   </div>
 </template>
 
 <script>
-import { validUsername } from '@/utils/validate'
-
+import { validMobile } from '@/utils/validate'
 export default {
   name: 'Login',
   data() {
-    const validateUsername = (rule, value, callback) => {
-      if (!validUsername(value)) {
-        callback(new Error('Please enter the correct user name'))
-      } else {
-        callback()
-      }
-    }
-    const validatePassword = (rule, value, callback) => {
-      if (value.length < 6) {
-        callback(new Error('The password can not be less than 6 digits'))
+    const validateMobile = (rule, value, callback) => {
+      if (!validMobile(value)) {
+        callback(new Error('请输入正确的手机号'))
       } else {
         callback()
       }
     }
     return {
       loginForm: {
-        username: 'admin',
-        password: '111111'
+        mobile: '13800000002',
+        password: '123456'
       },
       loginRules: {
-        username: [{ required: true, trigger: 'blur', validator: validateUsername }],
-        password: [{ required: true, trigger: 'blur', validator: validatePassword }]
+        mobile: [{ required: true, trigger: 'blur', validator: validateMobile }],
+        password: [
+          { required: true, trigger: 'blur', min: 6, max: 16, message: '密码长度在6-16位' }
+        ]
       },
       loading: false,
       passwordType: 'password',
@@ -88,7 +67,7 @@ export default {
   },
   watch: {
     $route: {
-      handler: function(route) {
+      handler: function (route) {
         this.redirect = route.query && route.query.redirect
       },
       immediate: true
@@ -106,18 +85,37 @@ export default {
       })
     },
     handleLogin() {
-      this.$refs.loginForm.validate(valid => {
+      this.$refs.loginForm.validate(async valid => {
+        // 表单校验
         if (valid) {
+          // 通过 -> 发起登录请求
+          // 知识点1: await 只能提取Promise对象成功的状态的值
+          // 知识点2: await 取代then()函数的, await可以把成功的值提取出来留在原地
+          // 知识点3: 如何捕获Promise错误的状态呢? 使用try+catch代码块
+
           this.loading = true
-          this.$store.dispatch('user/login', this.loginForm).then(() => {
-            this.$router.push({ path: this.redirect || '/' })
-            this.loading = false
-          }).catch(() => {
-            this.loading = false
-          })
+          try {
+            // 坑: 不加await, 会调用登录接口的时候, 这个登录异步任务无结果的时候, 代码会往下走就跳转进去了(问题: 密码错了也能跳转)
+
+            // 知识点4: actions方法, 无论何时都返回Promise对象(自定义的, 非axios的)
+            const res = await this.$store.dispatch('user/loginActions', this.loginForm)
+            // await等待后面成功了, 才会继续往下走
+
+            this.$message.success(res.message)
+
+            // 问题: 拿到刚才退出登录时, 回传的未遂地址的路径字符串呢?
+            // 答案: this.$route.query (vue-router内会把?后面参数字符串转成对象挂载query属性上)
+            // || 前面有地址就跳转回未遂页面, 如果前面没有(证明是第一次登录, 就用后面的值跳转去首页)
+            this.$router.replace(this.$route.query.redirect || '/')
+          } catch (err) {
+            // 一旦try大括号内代码报错立刻停止try大括号里代码向下执行
+            // 转而直接跳入catch大括号里执行, err形参接收的就是错误信息对象
+            // 错误对象要用console.dir打印
+            console.dir(err)
+          }
+          this.loading = false
         } else {
-          console.log('error submit!!')
-          return false
+          return false // 未通过
         }
       })
     }
@@ -126,12 +124,18 @@ export default {
 </script>
 
 <style lang="scss">
+.login_btn {
+  background: #407ffe;
+  height: 64px;
+  line-height: 32px;
+  font-size: 24px;
+}
 /* 修复input 背景不协调 和光标变色 */
 /* Detail see https://github.com/PanJiaChen/vue-element-admin/pull/927 */
 
-$bg:#283443;
-$light_gray:#fff;
-$cursor: #fff;
+$bg: #283443;
+$light_gray: #68b0fe; // 将输入框颜色改成蓝色
+$cursor: #68b0fe; // 将输入框光标改成蓝色
 
 @supports (-webkit-mask: none) and (not (cater-color: $cursor)) {
   .login-container .el-input input {
@@ -141,6 +145,9 @@ $cursor: #fff;
 
 /* reset element-ui css */
 .login-container {
+  background-image: url('~@/assets/common/login.jpg'); // 设置背景图片
+  background-position: center; // 将图片位置设置为充满整个屏幕
+
   .el-input {
     display: inline-block;
     height: 47px;
@@ -165,17 +172,22 @@ $cursor: #fff;
 
   .el-form-item {
     border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(0, 0, 0, 0.1);
+    // background: rgba(0, 0, 0, 0.1);
+    background: rgba(255, 255, 255, 0.7);
     border-radius: 5px;
     color: #454545;
   }
 }
+/* reset element-ui css */
+.el-form-item__error {
+  font-size: 14px;
+}
 </style>
 
 <style lang="scss" scoped>
-$bg:#2d3a4b;
-$dark_gray:#889aa4;
-$light_gray:#eee;
+$bg: #2d3a4b;
+$dark_gray: #889aa4;
+$light_gray: #eee;
 
 .login-container {
   min-height: 100%;
